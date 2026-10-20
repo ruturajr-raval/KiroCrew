@@ -981,12 +981,35 @@ def shows_suggestions(slug: str, record: Any, *, package_slug: str) -> bool:
     return str(getattr(record, "template_id", "") or "") != slug
 
 
+def tab_shows_suggestions(slug: str) -> bool:
+    """Whether crewmate *slug*'s Dashboard tab shows the suggestions page right now.
+
+    The answer :func:`turn_block` gives, for a caller that only needs the yes or no:
+    the stored instance record, no template page in force, no package on screen
+    (none under a lock), and :func:`shows_suggestions` on that. A template page in
+    force, a page named for the crewmate, or a package the tab draws is ``False``.
+    TOTAL: a dashboard that cannot be read answers ``False``, so nothing is asked of
+    a crewmate whose page might be there. Blocking IO.
+    """
+    try:
+        record, manifest, locked_line = _read_page(slug)
+    except Exception:
+        logger.debug("dashboard: %r's page could not be read", slug, exc_info=True)
+        return False
+    if record is None or manifest is not None:
+        return False
+    package_slug = "" if locked_line else package_on_screen(slug)
+    return shows_suggestions(slug, record, package_slug=package_slug)
+
+
 #: The block for a crewmate whose tab shows the suggestions page. No fields and no
 #: upkeep pointer: with no page in force there is nothing to write.
 SUGGESTIONS_LINE: str = (
-    "Your Dashboard tab shows the suggestions page: no page is adopted yet, so there "
-    "are no fields to keep up. To give it a page, dashboard_apply a template_id from "
-    "dashboard_templates, or dashboard_save your own page and then dashboard_apply it."
+    "Your Dashboard tab shows the suggestions page: you have no page of your own yet, "
+    "so there are no fields to keep up, and a dashboard_write lands on a page nobody "
+    "sees. Write your own HTML page (view.html) with the dashboard skill, styled from "
+    "your project and goal unless the user asked for a style: dashboard_save it, then "
+    "dashboard_apply it."
 )
 
 

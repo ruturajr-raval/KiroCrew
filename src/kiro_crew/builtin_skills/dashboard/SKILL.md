@@ -26,7 +26,8 @@ dashboard_save -> dashboard_apply -> live, as a new version
 ```
 
 1. **Save.** `dashboard_save` takes the package's `model`, `view` and `theme`.
-   `view.html` carries your markup, your CSS and your script. `model` names every
+   `view.html` carries your markup, your CSS and your script, and it is the only
+   view a crewmate page has: a `view` of `blocks` is refused. `model` names every
    field you bind, and it is also the list the controller pushes, so a binding
    the model does not declare is refused at the save and told to you by name.
    The gateway fills `kind` and `bound_to` from who you are, so the package is
@@ -128,6 +129,65 @@ What is fixed is what the page is allowed to claim:
   authority it does not have.
 - **Say which claims are yours.** A value you asserted and a value the log
   recorded are different kinds of claim. The frame marks yours; do not blur it.
+
+### A page that updates itself
+
+Every field on the page reads a crew-log fold, so the page moves the moment an
+event lands and stays true when you are not writing to it:
+
+| what the page shows | the fold |
+|---|---|
+| your work items, their state and what each produced | `work`, `workstreams` |
+| spend, activity | `usage`, `timeline` |
+
+When the page needs a fact no fold carries, the fact belongs in the crew log as
+an event type of its own, recorded where it changes (by the gateway, or by you
+through the tool that records it), rather than a value you keep typing.
+A hand-written field (`{"agentic": true}`) is for prose only you know, such as
+your own verdict. The `dashboard_save` reply lists every field with its type and
+source and names the hand-written ones under `manual_fields`, so you can see
+which cells go stale the moment you stop writing them.
+
+Two checks the gateway makes on every save, because the page run is skipped on
+a machine with no browser (the reply's `verification.note` then says nothing
+was checked): `shape_warnings` names each list, record or time you bound to a
+`data-dashboard-field` cell, which shows it raw (`[]`, an ISO string), so draw
+it in your script (`dashboard_types` and `dashboard_fields` carry `rendering`
+for each type); `theme_warnings` says your fixed colours cover one colour
+scheme only, so the page is unreadable in the other.
+
+### A look that belongs to the work
+
+Take the page's look from your own context: the project you work on (its
+README, its branding, its domain, its language, what the code does) and your
+goal (its subject and milestones), so each crewmate's page reads as part of its
+own work rather than a stock layout. A style the user asks for, in chat or on a
+card, wins over that and stays on every later rebuild.
+
+With no style asked, the default is modern, polished and good-looking: clear
+type, generous spacing, soft cards, one accent. Give it tasteful motion: an
+entrance as the page loads and a brief change when a value moves (the
+`living-ui` skill says how that should feel). Nothing loops while the page sits
+open all day, and all motion stops under `prefers-reduced-motion`.
+
+Either way, colour only with the variables the Dashboard tab sets for the scheme
+in force, so light and dark both read:
+
+| variable | use |
+|---|---|
+| `--bg`, `--bg-elevated` | page and raised surfaces |
+| `--card`, `--card-fg` | a card and the text on it |
+| `--text`, `--text-strong`, `--muted` | body, emphasis, secondary text |
+| `--border` | borders and dividers |
+| `--accent`, `--accent-subtle` | the accent and its tint |
+| `--ok`, `--warn`, `--danger` | states |
+
+A `var()` of any other name -- `var(--my-fg, #e8e8e8)` -- is not set by the tab,
+so it draws its fixed fallback in both schemes: pale text on the light tab. The
+save reply's `theme_warnings` names any such variable.
+
+Search the Kiro Crew documentation with `search_docs` (and `find_ui` for where
+a control is) before guessing how a fold, a field or a setting works.
 
 ## 3. The manager view: five questions on one screen
 

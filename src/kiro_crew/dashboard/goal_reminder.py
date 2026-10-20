@@ -230,15 +230,87 @@ def _finished_lines(tasks: list[dict[str, str]]) -> str:
     )
 
 
+#: Added to a crewmate's daily reminder and goal-setup wake while it has no Dashboard
+#: page of its own (:func:`dashboard_line`).
+DASHBOARD_BUILD_LINE: str = (
+    "Kiro Crew notes: you have no Dashboard page of your own yet, so this wake writes "
+    "one: your own HTML page (view.html), saved with dashboard_save and put live with "
+    "dashboard_apply; the dashboard skill has the detail. The page shows your goal, each "
+    "milestone with its latest reading, what you are working on, and what waits on the "
+    "user. Read each value from a crew-log fold where one carries it, so the page stays "
+    "current by itself as events land: work and workstreams for your work items; "
+    "dashboard_types lists the rest. A fact the page needs that no fold carries yet is a "
+    "new crew-log event type, not a value you keep typing; a hand-written field is for "
+    "prose only you know, such as your own verdict. Its look comes from this project and "
+    "this goal: the repo's README, its domain, its language and what the code does, so "
+    "the page reads as part of this work rather than a stock page, unless the user has "
+    "asked for a style, which wins and stays on every rebuild. With no style asked, make "
+    "it modern, polished and good-looking, with tasteful motion: an entrance as the page "
+    "loads and a brief change when a value moves, nothing that loops while the page "
+    "sits open, and none under prefers-reduced-motion. Colour only with the variables "
+    "the Dashboard tab sets for light and dark: var(--bg), var(--bg-elevated), "
+    "var(--card), var(--card-fg), var(--text), var(--text-strong), var(--muted), "
+    "var(--border), var(--accent), var(--accent-subtle), var(--ok), var(--warn), "
+    "var(--danger); a var() of any other name draws its fixed fallback in both schemes. "
+    "Search the Kiro Crew docs with search_docs before guessing "
+    "how a fold or a dashboard field works. Once dashboard_apply has put it live, post "
+    "one short message, the only one about it: a Dashboard page is ready for the user "
+    "on your Dashboard tab, open it to see it. No preview, nothing else."
+)
+
+
+def knows_its_page(rec: dict[str, Any]) -> bool:
+    """Whether a crewmate knows what its page is about: a goal and confirmed milestones.
+
+    Milestones are stored only once the person confirms them (the
+    ``crewmate.key_results`` card or the Goals tab), so a stored one is a confirmed one.
+    """
+    return member_goals.has_goal(rec) and bool(rec.get("key_results"))
+
+
+def dashboard_line(slug: str, rec: dict[str, Any]) -> str:
+    """The build-your-page line for crewmate *slug*, or ``""``.
+
+    Only while its Dashboard tab shows nothing of its own: no package bound to it
+    (:func:`kiro_crew.dashboard_agentic.bound_package`) and the suggestions page
+    (:func:`kiro_crew.dashboard_agentic.tab_shows_suggestions`, the read route's own
+    answer), so a template page the person picked, or the page named for the
+    crewmate, is never replaced on a wake. And only once *rec* holds a goal and
+    confirmed milestones (:func:`knows_its_page`), so the page has something to be
+    about. An empty *slug*, or a lookup that fails, gets no line. Blocking IO.
+    """
+    if not slug or not knows_its_page(rec):
+        return ""
+    from kiro_crew import dashboard_agentic
+
+    try:
+        from kiro_crew.dashboard_templates import instance as template_instance
+
+        if template_instance.is_locked(slug):
+            # The person locked the layout: an apply would be refused, so no wake
+            # asks for a page.
+            return ""
+        if dashboard_agentic.bound_package(slug):
+            return ""
+        if not dashboard_agentic.tab_shows_suggestions(slug):
+            return ""
+    except Exception:
+        logger.debug("dashboard line for %s: page lookup failed", slug, exc_info=True)
+        return ""
+    return DASHBOARD_BUILD_LINE
+
+
 def reminder_prompt(
     rec: dict[str, Any],
     cadence: str = member_goals.CADENCE_DAILY,
     *,
     finished: list[dict[str, str]] | None = None,
+    dashboard: str = "",
 ) -> str:
     """The hidden turn's text for *cadence*, built from the current goal record.
 
     *finished* is :func:`finished_tasks` for the weekly and monthly prompts.
+    *dashboard* is :func:`dashboard_line`, added last to the daily prompt.
     """
     block = member_goals.progress_block(rec)
     done = _finished_lines(finished or [])
@@ -250,7 +322,7 @@ def reminder_prompt(
             "number or a short note. Lead your message with those readings and say "
             "briefly where things stand toward each goal, then continue "
             "with your next task. Ask the user something only when you are blocked."
-        )
+        ) + (f"\n\n{dashboard}" if dashboard else "")
     if cadence == member_goals.CADENCE_WEEKLY:
         return (
             "[Weekly report] "
@@ -333,6 +405,15 @@ async def fire(state: Any, job: Any) -> str:
     if skip:
         return skip
     finished: list[dict[str, str]] = []
+    dashboard = ""
+    if cadence == member_goals.CADENCE_DAILY:
+        dashboard = await asyncio.to_thread(dashboard_line, slug, rec)
+        # The binding read ran off the loop: a turn may have started meanwhile.
+        again, skip = _idle_thread(state, slot_key, member)
+        if skip:
+            return skip
+        if again is not slot:
+            return "skipped: the crewmate's thread is not open"
     if cadence in member_goals.REPORT_KINDS:
         finished = await asyncio.to_thread(finished_tasks, slot_key, cadence)
         # A turn (a cron notification, a user message) can start while the
@@ -345,7 +426,7 @@ async def fire(state: Any, job: Any) -> str:
     dispatch_hidden_turn(
         state,
         slot,
-        reminder_prompt(rec, cadence, finished=finished),
+        reminder_prompt(rec, cadence, finished=finished, dashboard=dashboard),
         human_seen=False,
     )
     return "started"

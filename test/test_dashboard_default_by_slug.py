@@ -320,3 +320,79 @@ class TestTheShippedRegistry:
 
     def test_project_report_still_ships_for_a_crewmate_to_adopt(self) -> None:
         assert instance.DEFAULT_TEMPLATE_ID in catalog.list_templates().by_id
+
+
+class TestTheBuildYourPageLineNeverReplacesAPage:
+    """`goal_reminder.dashboard_line` asks a crewmate to write a page only while its tab
+    shows nothing of its own and it has a goal and confirmed milestones, so a template
+    page the person picked, or the page named for the crewmate, is never replaced on a
+    wake."""
+
+    GOAL = {"id": "g00000001", "text": "Keep the docs current"}
+    KR = {"id": "k00000001", "text": "Pages reviewed", "target": "5", "goal_ids": ["g00000001"]}
+
+    def _line(self, slug: str, *, krs: bool = True) -> str:
+        from kiro_crew.dashboard import goal_reminder
+
+        rec = {"goals": [self.GOAL], "key_results": [self.KR] if krs else []}
+        return goal_reminder.dashboard_line(slug, rec)
+
+    def test_an_empty_tab_with_a_goal_and_milestones_gets_the_line(self, builtin: Path) -> None:
+        from kiro_crew.dashboard import goal_reminder
+
+        assert dashboard_agentic.tab_shows_suggestions("mate") is True
+        assert self._line("mate") == goal_reminder.DASHBOARD_BUILD_LINE
+
+    def test_a_goal_without_milestones_gets_no_line(self, builtin: Path) -> None:
+        assert self._line("mate", krs=False) == ""
+
+    def test_no_goal_gets_no_line(self, builtin: Path) -> None:
+        from kiro_crew.dashboard import goal_reminder
+
+        assert goal_reminder.dashboard_line("mate", {"goals": [], "key_results": [self.KR]}) == ""
+
+    def test_a_template_page_in_force_gets_no_line(self, builtin: Path) -> None:
+        instance.adopt("mate", "fixture-other")
+        assert dashboard_agentic.tab_shows_suggestions("mate") is False
+        assert self._line("mate") == ""
+
+    def test_the_page_named_for_the_crewmate_gets_no_line(self, builtin: Path) -> None:
+        assert dashboard_agentic.tab_shows_suggestions(SLUG) is False
+        assert self._line(SLUG) == ""
+
+    def test_a_bound_package_gets_no_line(self, builtin: Path) -> None:
+        with patch.object(dashboard_agentic, "bound_package", return_value="my-pkg"):
+            assert self._line("mate") == ""
+
+    def test_a_locked_layout_gets_no_line(self, builtin: Path) -> None:
+        # A lock holds for a crewmate that never adopted, and an apply would be refused.
+        instance.set_structure_lock("mate", True)
+        assert dashboard_agentic.tab_shows_suggestions("mate") is True
+        assert self._line("mate") == ""
+
+    def test_the_line_asks_for_one_ready_message_after_the_apply(self, builtin: Path) -> None:
+        from kiro_crew.dashboard import goal_reminder
+
+        line = goal_reminder.DASHBOARD_BUILD_LINE
+        assert "dashboard_save" in line and "dashboard_apply" in line
+        assert "one short message" in line and "Dashboard tab" in line
+
+    def test_once_the_page_is_applied_the_line_is_gone(self, builtin: Path) -> None:
+        """The applied page is on screen, so the next wake carries no line and the
+        crewmate posts no second message."""
+        assert self._line("mate") != ""
+        with patch.object(dashboard_agentic, "package_on_screen", return_value="my-pkg"):
+            assert dashboard_agentic.tab_shows_suggestions("mate") is False
+            assert self._line("mate") == ""
+
+    def test_the_line_names_the_tab_variables_and_the_default_look(self, builtin: Path) -> None:
+        from kiro_crew.dashboard import goal_reminder
+        from kiro_crew.dashboard.handlers.dashboard_page_checks import HOST_THEME_VARS
+
+        line = goal_reminder.DASHBOARD_BUILD_LINE
+        named = {f"--{n}" for n in __import__("re").findall(r"var\(--([\w-]+)\)", line)}
+        # Every variable the line names is one the tab sets, and the core ones are there.
+        assert named and named <= HOST_THEME_VARS
+        assert {"--bg", "--text", "--card", "--border", "--accent", "--muted"} <= named
+        assert "modern, polished" in line and "prefers-reduced-motion" in line
+        assert "nothing that loops" in line
