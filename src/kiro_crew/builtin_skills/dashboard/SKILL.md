@@ -137,6 +137,8 @@ event lands and stays true when you are not writing to it:
 
 | what the page shows | the fold |
 |---|---|
+| the goal, each milestone's target and latest reading, met or open | `goal` |
+| what waits on the user: open questions and cards waiting on a button | `waiting` |
 | your work items, their state and what each produced | `work`, `workstreams` |
 | spend, activity | `usage`, `timeline` |
 
@@ -279,7 +281,7 @@ never reach, because a reader cannot tell it from a current one.
 
 Fold names available today: `status`, `usage`, `timeline`, `tools`, `approvals`,
 `subagents`, `class`, `outline`, `ledger`, `radar`, `work`, `panel`, `agentic`,
-`mistakes`, `workstreams`, and a tree-keyed `worktree`.
+`mistakes`, `workstreams`, `goal`, `waiting`, and a tree-keyed `worktree`.
 
 Each is a list of paths, and a path is dotted keys only -- there is no index
 syntax, so a per-row value has no path and a list's LENGTH is what you bind.

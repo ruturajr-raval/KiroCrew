@@ -72,7 +72,7 @@ VERIFICATION_SKIPPED: Final[str] = (
 MANUAL_FIELDS_NOTE: Final[str] = (
     "These fields change only when you write them with dashboard_write, so they go "
     "stale the moment you stop. A fact the crew log already records reads better "
-    "from its fold (dashboard_types lists them: work, workstreams, usage...); keep a "
+    "from its fold (dashboard_types lists them: goal, waiting, work, workstreams, usage...); keep a "
     "manual field for prose only you know, such as your own verdict."
 )
 

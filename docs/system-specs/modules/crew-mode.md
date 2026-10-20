@@ -2226,7 +2226,9 @@ draft guard, so a veto neither remounts the card nor loses its pushed form.
   (`view.html`) with the dashboard skill, `dashboard_save` it and
   `dashboard_apply` it, showing the goal, milestones with readings, what the
   crewmate works on and what waits on the user; every value read from a
-  crew-log fold where one carries it, a fact no fold carries recorded as a new
+  crew-log fold where one carries it (`goal` for the goal and milestones,
+  `waiting` for what waits on the user, `work` and `workstreams` for work
+  items), a fact no fold carries recorded as a new
   crew-log event type, a hand-written field only for prose the crewmate alone
   knows; the look taken from the project and the goal unless the user asked
   for a style, which wins and is kept on rebuilds -- with no style asked,
@@ -2378,7 +2380,61 @@ no shipped page named for its slug) has no page in force and shows the
 SUGGESTIONS page (`CrewDashboardEmpty`): the
 crewmate's face under a first-person bubble and three prompts that only fill its
 chat box (`onAct`); a staged preview and a root session's Overview are not
-affected. A refresh opens the Dashboard tab rather than the strip's persisted
+affected. **Waiting on
+you** is data the crewmate's own page binds, the `waiting` slot fold (see "A
+crewmate's own record as folds" below). The list it folds is
+`dashboard/member_waiting.waiting_items`, newest first, at most five: every
+speech row of the crewmate's own thread since the person last answered whose
+text ends in an `[OPTIONS: ...]` line, every `ask_question` card still waiting
+there, and every change card still pending there, titled by the card. The
+person answers with a row a human send path marks
+(`history.HUMAN_TURN_META_KEY`: a typed message, an `[OPTIONS]` chip pressed in
+the chat, a steer) or by pressing a change card in that thread (applied,
+partial, failed on apply, or declined; its `finished_at` is the answer's time):
+either ends the walk, so every question asked before it clears. It reads the
+same rows and parser the sidebar's question badge reads
+(`slot.sidebar_messages`, the bounded tail a restored thread holds before its
+window loads) and the change-card store, so a gateway wake, which writes no row
+and presses no card, keeps an item, and so does a card that only expired.
+
+**A crewmate's own record as folds.** Two facts a page about a crewmate's
+work needs are recorded into its own DM session log by the gateway, as
+snapshots, at the point each changes (`dashboard/crewmate_feed.py`, started
+from the app's startup hook beside `bind_serving_loop`, a no-op with the crew
+log off): `dashboard/goal_recorded` after every write of the goal record
+(`member_goals.add_change_listener`), folded as `goal` (the first goal's text,
+the goals, each milestone's target, latest reading, `met` by
+`member_goal_met.key_result_met` and time, and the met/open/total counts), and
+`dashboard/waiting_changed` when `waiting_items` differs from the last list
+recorded, checked after each growth of that DM log (`emit.add_growth_listener`,
+coalesced for 0.4 s), folded as `waiting` (`items`, `count`, `omitted`, `newest`). The list
+reads the change-card store, and the settle runs on the serving loop, so each
+settle first awaits `CardStore.warm()` (the file and vault-key read in a worker
+thread); when warming fails the list is read with `cards=False`, without the store,
+and the cold store is never read on the loop (`test/test_crewmate_feed_cold_store.py`).
+A goal
+write while the thread has no live session (a milestones press between turns, a
+write after a restart) is held in `crewmate_feed._held_goals`, newest wins, and
+recorded on the thread's next growth, when its session is known. An
+entry is appended only when its snapshot differs from the last one this
+process recorded for that thread, so the check's own append records nothing.
+A snapshot counts as recorded only once its append commits (the writer's
+`on_settled`); one the writer rejects is appended again on the next check, and
+one still being written is not appended twice. A new snapshot is compared with
+the newest one being written when there is one, else the last committed, so a
+goal changed and changed back while the writer is busy is appended again. The
+newest goal snapshot is held until an append of it commits. Each thread
+remembers the session it last logged into, so a growth that lands after the
+turn's teardown still records that thread. A goal snapshot shortens every cell
+until the entry fits one crew-log line, and carries `goals_total`,
+`milestones_total` and `milestones_met` for the whole record. Goal and milestone text is
+redacted like the waiting list. Both lists cut at their fold's row bound and
+count what they cut (`goals_omitted`, `milestones_omitted`, `waiting.omitted`).
+A goal written before the thread had a session (the create flow sets it before
+the first turn) has nowhere to land then, so the thread's first growth that
+finds no goal recorded reads the record off the loop and records it.
+Both folds are slot-keyed and eager, so the frame's live push moves a page
+bound to them with no `dashboard_write`. A refresh opens the Dashboard tab rather than the strip's persisted
 focus, once per crewmate and strip bucket per page load (`dashboardOnLoad.ts`),
 so a tab picked afterwards or on an in-app return stays. Its "Opening the
 conversation" line is withheld while the main column already says it

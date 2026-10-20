@@ -1338,6 +1338,9 @@ def test_the_build_line_is_an_html_page_saved_and_applied() -> None:
     line = goal_reminder.DASHBOARD_BUILD_LINE
     assert "view.html" in line and "dashboard_save" in line and "dashboard_apply" in line
     assert "worker" not in line and "conductor" not in line
+    # It names the folds that keep the goal, milestones and waiting items current.
+    assert "goal for the goal and its milestones" in line
+    assert "waiting for what waits on the user" in line
     assert goal_reminder.dashboard_line("", {"goals": [{"text": "x"}], "key_results": [{}]}) == ""
 
 
