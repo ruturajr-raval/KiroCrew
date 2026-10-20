@@ -552,8 +552,8 @@ async def _pin_claude_starting_mode(self: AcpClient, resp: dict) -> None:
     Runs only on the exclusion path (:meth:`_claude_session_excludes_local`)
     and on a Side Chat session (``side_read_only``), whose READ_ONLY gate
     has no approver behind it. A session whose settings file Crew wrote is
-    not pinned: a user ``~/.claude`` mode reaching it is the inherited-config
-    gap the spec names, not something this path adds. The exclusion is never
+    not pinned: a user ``~/.claude`` mode reaching it is the user's own setting,
+    which the spec says Crew honors, not something this path adds. The exclusion is never
     taken when Crew requested a mode of its own, or when the installed adapter
     is below :data:`CLAUDE_ACP_SETTING_SOURCES_MIN_VERSION`, and Side Chat
     runs no tools on such an adapter; if the adapter that answered the

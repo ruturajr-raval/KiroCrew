@@ -1074,7 +1074,7 @@ class TestClientSeam:
         """The pin covers the exclusion path only.
 
         A user ``~/.claude`` mode reaching a session whose file Crew wrote is the
-        inherited-config gap the spec names (W2-1), not something this change
+        user's own setting the spec says Crew honors (W2-1), not something this change
         opens, so no ``session/set_mode`` is sent there.
         """
         home = tmp_path / "home"

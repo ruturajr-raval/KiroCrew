@@ -134,8 +134,8 @@ writes no SEL record, exactly as a project allow rule does. Only the literal val
 `auto` resolves, a backend that seeds no settings file resolves to nothing, and with
 no opt-in no `defaultMode` is written at all. Crew never seeds `bypassPermissions`:
 `resolve_cc_permission_mode` resolves only `auto` and warns on anything else. That mode
-can only arrive from a foreign project settings file, which is the disclosed
-inherited-settings gap below. The audit half of the `auto` trade is tracked in #12744.
+can only arrive from a foreign project settings file, which loads as the user-settings
+section below describes. The audit half of the `auto` trade is tracked in #12744.
 
 This is documented, intended Claude Code behaviour, not a defect introduced by making
 the harness selectable — the harness was already implemented and reachable by any
@@ -529,7 +529,7 @@ not pre-approved, so it runs nothing `default` would not.
 
 What still loads is the `user` tier. A session whose file Crew authored loads
 `user`, `project` and `local`, so this path is narrower than the normal one. The user
-tier is the inherited-config gap below.
+tier loads as "The user's own `~/.claude` settings apply" below describes.
 
 The project file is never read for its mode or allows, only for its deny rules,
 because it can change between a read and `session/new`. One thing a file still decides: claude-agent-acp picks the
@@ -551,8 +551,8 @@ so a session never runs with Crew's tools under a mode that approves on its own.
 
 The pin runs only on this path and on a Side Chat session (below). Any other session
 whose file Crew authored is not pinned: a
-user `~/.claude` mode reaching it is the inherited-config gap below ("Known gap: the
-user's global `~/.claude` is inherited"), which this path does not widen. The exclusion is never taken below
+user `~/.claude` mode reaching it is the behavior "The user's own `~/.claude` settings
+apply" below describes, which this path does not widen. The exclusion is never taken below
 `CLAUDE_ACP_SETTING_SOURCES_MIN_VERSION`, or when Crew requested a mode itself, so
 neither case reaches the pin.
 
@@ -604,12 +604,12 @@ child, so the spawn scrub list must not grow to cover either namespace. The publ
 core does not set `CLAUDE_CONFIG_DIR` itself: an isolated CC config root (seeding a
 Crew-owned directory from the user's `~/.claude`, keeping credentials and models
 while stripping inherited `permissions` that would pre-approve past Crew's gate)
-is **not implemented here** — see the known gap below.
+is **not implemented here** — see "The user's own `~/.claude` settings apply" below.
 
 ### A Side Chat session
 
 A Side Chat or thread-reply session (`side_read_only`) runs under `READ_ONLY`, which
-has no approver behind it, so it cannot inherit the gap below. It is started with
+has no approver behind it, so it does not take the user-settings posture below. It is started with
 only the read built-ins (`tools`: Read, Grep, Glob, WebFetch, WebSearch), an empty
 `mcpServers` array and `strictMcpConfig`, inline settings that add a `permissions.ask`
 rule for each of those five tools (so an in-work-dir read asks too), deny the read tools every host sensitive path
@@ -623,21 +623,9 @@ opens a sensitive path, since a deny rule outranks both from any source. A launc
 does not start the session.
 Detail: [side.md](side.md), "On claude the confinement is the session's own options".
 
-### Known gap: the user's global `~/.claude` is inherited
+### The user's own `~/.claude` settings apply
 
-With no `CLAUDE_CONFIG_DIR` set by the core, the adapter and the SDK read the
-user's real `~/.claude`. Project-scope `settings.local.json` outranks it for
-`defaultMode`, but `permissions.allow` entries **merge** rather than being
-overridden — so a user whose global settings pre-approve a tool family gets those
-calls auto-approved by Claude's own engine, which never calls `canUseTool` and so
-never reaches Crew's gate. A project's own `settings.local.json` is not part of
-this gap: a session that carries Crew's tools either governs a Crew seed (authored or
-shared) or excludes the project tier from its setting sources. Its checked-in `.claude/settings.json` is part of the
-gap only for a session whose file Crew authored. Both are the same hazard the "no gate on pre-approved calls"
-section above describes, arriving through inherited config. Closing it means an
-isolated config root, which is a separate change: it has to carry credentials
-across (or CC cannot authenticate at all) while dropping exactly the `permissions`
-keys that bypass the gate.
+Crew honors the permission settings a user configures for Claude Code in a main or member chat; it does not override them. With no `CLAUDE_CONFIG_DIR` set by the core, the adapter and the SDK read the user's real `~/.claude`, and a session whose settings file Crew wrote starts in the mode the user configured. Project-scope `settings.local.json` outranks it for `defaultMode`, and `permissions.allow` entries **merge** rather than being overridden, so a tool family the user's global settings pre-approve runs without asking: Claude's own engine approves the call and never calls `canUseTool`, so Crew's gate does not see it (the "no gate on pre-approved calls" section above). A project's own `settings.local.json` does not take part: a session that carries Crew's tools either governs a Crew seed (authored or shared) or excludes the project tier from its setting sources. Its checked-in `.claude/settings.json` loads the same way only for a session whose file Crew authored. A Side Chat session does not take this posture (above). The core sets no isolated config root.
 
 ### Standing rule
 
