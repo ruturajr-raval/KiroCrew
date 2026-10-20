@@ -70,8 +70,8 @@ def kickoff_prompt(
     gone by the time the turn would run) and shows the whole list. Without the
     ``kirocrew-mate`` tools (*has_mate_tools*) the milestones are written in
     the chat for the user to add on the Goals tab. *dashboard_line* is the
-    gateway's build-your-page line (``goal_reminder.dashboard_line``), added last
-    while the crewmate has no Dashboard page of its own.
+    gateway's one-time page-offer line (``goal_reminder.dashboard_line``), added
+    last while the crewmate may still offer its page.
     """
     numbers = member_goals.goal_numbers(rec)
     if goal_id not in numbers:
@@ -184,7 +184,10 @@ def _goal_prompt(goal_id: str, slug: str = "") -> Build:
         from kiro_crew.dashboard.goal_reminder import dashboard_line
 
         return kickoff_prompt(
-            rec, goal_id, has_mate_tools=tools, dashboard_line=dashboard_line(slug, rec)
+            rec,
+            goal_id,
+            has_mate_tools=tools,
+            dashboard_line=dashboard_line(slug, rec, has_mate_tools=tools),
         )
 
     return build
@@ -197,8 +200,9 @@ def milestones_prompt(
 
     Without the ``kirocrew-mate`` tools (*has_mate_tools*) the check-ins are
     described and left to the user's Goals tab instead of ``set_check_ins``.
-    *dashboard_line* is ``goal_reminder.dashboard_line``, added last: confirming the
-    milestones is the moment a crewmate with no page first knows what one is about.
+    *dashboard_line* is ``goal_reminder.dashboard_line`` (the one-time page offer),
+    added last: confirming the milestones is the moment a crewmate first knows what
+    its page would be about.
     """
     krs = rec.get("key_results") or []
     if not krs:
@@ -297,7 +301,9 @@ def _milestones_build(slug: str) -> Build:
         from kiro_crew.dashboard.goal_reminder import dashboard_line
 
         return milestones_prompt(
-            rec, has_mate_tools=tools, dashboard_line=dashboard_line(slug, rec)
+            rec,
+            has_mate_tools=tools,
+            dashboard_line=dashboard_line(slug, rec, has_mate_tools=tools),
         )
 
     return build
