@@ -165,6 +165,9 @@ _SETTING_ORDER: dict[str, tuple[Any, ...]] = {
     # Crewmate 2.0 hands each crewmate's work to a worker carrying its own kit, so
     # turning it on is the wider direction and asks for the acknowledgement.
     "dashboard.crewmate_v2": (False, True),
+    # Dynamic capabilities lets a crewmate raise cards that add to its worker's
+    # kit, so on is the wider direction too.
+    "dashboard.crewmate_dynamic_capabilities": (False, True),
     "agent.approval_mode": ("interactive", "auto"),
     "agent.sandbox": ("strict", "auto", "off"),
     "agent.yolo_duration": ("30m", "1h", "6h", "12h", "24h", "until_shutdown"),

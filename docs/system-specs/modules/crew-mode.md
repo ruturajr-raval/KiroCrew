@@ -3253,14 +3253,16 @@ could not be read, so the server took the request) all show "N comments sent".
 
 **Behind the Crewmate 2.0 switch.** Everything in this section, and the
 migration below, runs only while `dashboard.crewmate_v2` is on
-(`kiro_crew/crewmate_v2.py`, default **off**, `restart=True`: `crewmate_v2.latch`
+(`kiro_crew/crewmate_v2.py`, default **on** for a fresh install and for an
+upgrade with no key set, `restart=True`: `crewmate_v2.latch`
 reads it once at gateway start and `enabled` answers that value for the whole
 run, so a crewmate is never half on its template and half on its conductor). Its
 toggle, labelled **Crewmate 2.0**, sits inside the Crew Members card of Settings
 > Developer > Feature Previews and is drawn only while that card's per-device
 Crewmates preview is on (`pages/settings/CrewmateV2Toggle.tsx`, a config PATCH
-with the schema's restart pill). Off, the gateway behaves as it did before the
-split:
+with the schema's restart pill). A config that cannot be read answers on and is
+not latched, so a failed read never reverses the migration. Off, the gateway
+behaves as it did before the split:
 
 | Entry point | Off |
 | --- | --- |
@@ -3817,6 +3819,41 @@ read-time pass (`kas_agents._ceiling_permitted`) withholds again, so an addition
 cannot lift the worker above POLICY ∩ PROFILE; a withheld grant leaves the
 server mounted and its calls prompting. Crew's PreToolUse gate evaluates every
 call regardless.
+
+### Dynamic capabilities
+
+**Behind a second switch, nested under Crewmate 2.0.**
+`dashboard.crewmate_dynamic_capabilities` (`kiro_crew/crewmate_dynamic_capabilities.py`,
+default **off**, `restart=True`, latched once at gateway start beside 2.0) holds
+only the crewmate-driven capability path: the crewmate finding a skill or an MCP
+server for its own worker and asking for it on a card. Its effective value is
+2.0 AND this key (`enabled`); `restricted` is 2.0 on and this key off, and is
+False while 2.0 is off, so the shape before the split keeps its
+`request_capabilities` with a raw operations draft. Its toggle, **Dynamic
+capabilities**, is drawn inside the Crewmate 2.0 toggle and only while 2.0 is on
+(`pages/settings/CrewmateDynamicCapabilitiesToggle.tsx`, a config PATCH with the
+restart pill). Off, with 2.0 on:
+
+| Entry point | Off |
+| --- | --- |
+| `mcp_mate._list_tools` / `_call_tool_inner` (`_withheld_tools`) | neither `find_capabilities` nor `request_capabilities` is listed; a call is an unknown tool |
+| `member_capability_catalog.api_member_self_capabilities` | 404 (`find_capabilities`' route) |
+| `member_self.api_member_self_propose` | 404 for `request: capabilities` (operations or `additions`, the hidden-turn admission included); the other crewmate cards are proposed as before |
+| `handlers/change_cards.api_cards_agent_propose` (`_crewmate_drives_capabilities_off`) | 403 `dynamic_capabilities_off` for a `crewmate.capabilities` card from a crewmate's thread or its worker; any other caller proposes it |
+| `crewmate_dispatch_capabilities.own_worker_note` | no capability summary on `session_create` / `session_send` |
+| `mate_thread_wakes.report_prompt` (`_missing_capability_line`) | a worker's gap (the `MISSING CAPABILITY:` line or the prose "blocked, no X tool") gets `worker_report.missing_capability_manual`: tell the user in one plain line to add it in the crewmate's advanced settings; no card |
+| `handlers/change_cards._complete` | no `[Capabilities added]` nudge |
+| `mate_worker.mate_worker_prompt` (installed by `service_agents._install_mate_worker_agent`) | `worker.principles_manual`: names what it could not do, asks for no `MISSING CAPABILITY:` line |
+| `context_assembly/member.build_member_section` | `conductor.mate_tools_identity_manual` and `conductor.crew_log_section_manual`: neither tool named |
+
+Not this switch's, so on either way: the user adding or removing worker
+capabilities by hand in the crewmate's advanced settings
+(`/api/agents/{member}/capabilities` through `mate_capabilities.put`, and the
+custom agent template through `/api/agents/{member}/worker-kit`), the worker kit
+built from base, template and what the user added, the conductor, the hand-off,
+worktrees, heartbeat and the Dashboard. The suite runs with it latched on
+(`test/conftest.py::_crewmate_dynamic_capabilities_on`);
+`test/test_crewmate_dynamic_capabilities.py` pins the off shape.
 
 ## Selection: the `select_crew` contract
 

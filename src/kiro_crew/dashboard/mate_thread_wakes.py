@@ -68,6 +68,21 @@ _MISSING_CAPABILITY_CHARS = 240
 _LINE_DECORATION = " \t*_`#>-"
 
 
+def _missing_capability_line(missing: str) -> str:
+    """The line under a worker's gap: find it and raise the card, or ask the user.
+
+    While Dynamic capabilities is off under Crewmate 2.0
+    (``kiro_crew.crewmate_dynamic_capabilities``) the conductor has neither
+    find_capabilities nor request_capabilities, so it is told to ask the user to
+    add the capability in its advanced settings, in one plain line, no card.
+    """
+    from kiro_crew import crewmate_dynamic_capabilities
+
+    if crewmate_dynamic_capabilities.restricted():
+        return crewmate_prompts.fill("worker_report.missing_capability_manual", missing=missing)
+    return crewmate_prompts.fill("worker_report.missing_capability", missing=missing)
+
+
 def missing_capability(text: str) -> str:
     """What a worker's reply says it was missing, from its ``MISSING CAPABILITY:`` line, else ``""``.
 
@@ -174,9 +189,7 @@ def report_prompt(reports: list[dict[str, Any]]) -> str:
             lines.extend([_BEGIN, text, _END])
             missing = missing_capability(text)
             if missing:
-                lines.append(
-                    crewmate_prompts.fill("worker_report.missing_capability", missing=missing)
-                )
+                lines.append(_missing_capability_line(missing))
         lines.append("")
     lines.append(_GUIDANCE)
     return "\n".join(lines)

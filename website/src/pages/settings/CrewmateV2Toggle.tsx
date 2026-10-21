@@ -9,7 +9,10 @@
  * is PATCHed to config and read back through the shared `['kirocrewConfig']`
  * query, like the Crewmates section's reply-threads switch. The gateway reads it
  * once at startup (`kiro_crew/crewmate_v2.py`), so a change says "restart to
- * apply" until the page is reloaded.
+ * apply" until the page is reloaded. On by default.
+ *
+ * While it is on, the **Dynamic capabilities** switch nests under it
+ * (`CrewmateDynamicCapabilitiesToggle.tsx`): it only matters with 2.0 on.
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
@@ -18,6 +21,7 @@ import ErrorNotice from '../../components/ErrorNotice'
 import { SettingsToggle } from '../../components/settings'
 import { SchemaRestartBadge } from '../../components/settingRef/RestartRequiredBadge'
 import { i18nT } from '../../i18n/t'
+import { CrewmateDynamicCapabilitiesToggle } from './CrewmateDynamicCapabilitiesToggle'
 
 /** The config path the toggle writes; read once by the gateway at startup. */
 export const CREWMATE_V2_CONFIG_KEY = 'dashboard.crewmate_v2'
@@ -68,6 +72,8 @@ export function CrewmateV2Toggle() {
           testId="crewmate-v2-save-error"
         />
       )}
+      {/* Third level: only with Crewmate 2.0 on, where it has an effect. */}
+      {on && <CrewmateDynamicCapabilitiesToggle />}
     </div>
   )
 }

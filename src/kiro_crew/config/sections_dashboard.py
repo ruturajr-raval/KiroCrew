@@ -195,14 +195,26 @@ class DashboardConfig:
         ),
     )
     crewmate_v2: bool = field(
-        default=False,
+        default=True,
         metadata=_meta(
             "Crewmate 2.0",
             "Each crewmate gets its own file, chats on its conductor and hands every "
             "task to its own worker session; existing crewmates are moved onto that "
-            "shape at startup. Off by default: crewmates chat on their template as "
-            "before, and turning it off again moves every crewmate back to the "
-            "template it had. Worker tools added on cards are kept but unused while "
+            "shape at startup. On by default. Turning it off moves every crewmate "
+            "back to the template it had, so crewmates chat on their template as "
+            "before; worker tools added to them are kept but unused while off. "
+            "Takes effect after a restart.",
+            restart=True,
+        ),
+    )
+    crewmate_dynamic_capabilities: bool = field(
+        default=False,
+        metadata=_meta(
+            "Dynamic capabilities",
+            "With Crewmate 2.0 on, a crewmate can find new skills or tools for its "
+            "worker and ask for them on a card in its chat. Off by default: only you "
+            "add them, in the crewmate's advanced settings, and the crewmate tells "
+            "you when its worker lacks one. Has no effect while Crewmate 2.0 is "
             "off. Takes effect after a restart.",
             restart=True,
         ),

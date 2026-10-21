@@ -62,6 +62,21 @@ MATE_WORKER_PROMPT = crewmate_prompts.fill(
     "worker.principles", missing_prefix=MISSING_CAPABILITY_PREFIX
 )
 
+#: The same principles while Dynamic capabilities is off under Crewmate 2.0: the
+#: worker still names what it could not do, but is asked for no
+#: ``MISSING CAPABILITY:`` line, because no card follows from one.
+MATE_WORKER_PROMPT_MANUAL = crewmate_prompts.text("worker.principles_manual")
+
+
+def mate_worker_prompt() -> str:
+    """The worker principles this process installs (:mod:`kiro_crew.crewmate_dynamic_capabilities`)."""
+    from kiro_crew import crewmate_dynamic_capabilities
+
+    if crewmate_dynamic_capabilities.restricted():
+        return MATE_WORKER_PROMPT_MANUAL
+    return MATE_WORKER_PROMPT
+
+
 #: The sub-agent tools a crewmate's conductor does not mount. Its hand-off is a
 #: worker session (``session_create`` / ``session_send`` /
 #: ``session_read_message``), so ``spawn_run`` and the tools that only act on a

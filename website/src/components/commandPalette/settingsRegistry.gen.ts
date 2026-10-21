@@ -1761,7 +1761,7 @@ export const SETTINGS_REGISTRY: SettingEntry[] =
     "id": "developer.crewmate-2-0",
     "label": "Crewmate 2.0",
     "labelKey": "pages.developer.featurePreviewsTab.crewmate_v2",
-    "hint": "Each crewmate gets its own file, chats on its conductor and hands every task to its own worker. Turning it off moves every crewmate back to the template it had. Worker tools added on cards are kept but unused while off.",
+    "hint": "Each crewmate gets its own file, chats on its conductor and hands every task to its own worker. On by default. Turning it off moves every crewmate back to the template it had; worker tools added to them are kept but unused while off.",
     "tab": "developer",
     "type": "toggle",
     "occurrence": 1
@@ -1789,6 +1789,15 @@ export const SETTINGS_REGISTRY: SettingEntry[] =
     "label": "Developer Mode",
     "labelKey": "pages.settings.developerPanel.developer_mode",
     "hint": "Show Developer page in sidebar with Logs, System metrics, and Memory internals",
+    "tab": "developer",
+    "type": "toggle",
+    "occurrence": 1
+  },
+  {
+    "id": "developer.dynamic-capabilities",
+    "label": "Dynamic capabilities",
+    "labelKey": "pages.developer.featurePreviewsTab.crewmate_dynamic_capabilities",
+    "hint": "The crewmate can find and request new skills or tools for its worker on a card. Off: only you add them, in the crewmate's advanced settings.",
     "tab": "developer",
     "type": "toggle",
     "occurrence": 1

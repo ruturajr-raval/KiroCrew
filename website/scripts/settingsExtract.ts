@@ -183,6 +183,9 @@ export const PANEL_TAB_MAP: Record<string, PanelTarget> = {
   // The Crewmate 2.0 switch FeaturePreviewsSection nests in its Crew Members
   // card (`dashboard.crewmate_v2`), so a SettingRef to it deep-links to the row.
   'CrewmateV2Toggle.tsx': 'developer',
+  // Dynamic capabilities, nested under the Crewmate 2.0 switch
+  // (`dashboard.crewmate_dynamic_capabilities`).
+  'CrewmateDynamicCapabilitiesToggle.tsx': 'developer',
   // The Decisions (Jev) card, which FeaturePreviewsSection mounts. Its own file
   // because it is a list and a detail rather than one row, and mapped here for the
   // reason the section above is: a control on a Settings pane that search cannot

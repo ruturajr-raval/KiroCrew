@@ -3226,6 +3226,9 @@ _EDITABLE_CONFIG: dict[str, dict] = {
     # schema marks it restart=True. The toggle sits under the Crew Members
     # preview card in Settings > Developer > Feature Previews.
     "dashboard.crewmate_v2": {"type": "bool"},
+    # Dynamic capabilities (``kiro_crew.crewmate_dynamic_capabilities``), the
+    # switch nested under Crewmate 2.0; read once at startup, restart=True.
+    "dashboard.crewmate_dynamic_capabilities": {"type": "bool"},
     "dashboard.dynamic_dashboard_cards": {"type": "bool"},
     # User profile (onboarding step 2 + Settings > General > About You).
     # Structured slugs, not free text: context.py maps them to prompt-ready

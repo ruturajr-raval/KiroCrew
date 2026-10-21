@@ -477,13 +477,47 @@ async def api_cards_agent_propose(request: web.Request) -> web.Response:
             raise CardError(400, "invalid_body", f"unknown field '{unknown[0][:64]}'")
     except CardError as exc:
         return _refusal(exc)
+    kind = str(body.get("kind") or "")
+    if kind == catalog.KIND_CREWMATE_CAPABILITIES and _crewmate_drives_capabilities_off(
+        request, slot_key, sk
+    ):
+        _audit(sk, "cards.propose", "denied", "dynamic_capabilities_off")
+        return _refusal(
+            CardError(
+                403,
+                "dynamic_capabilities_off",
+                "a crewmate's worker capabilities are added by the user in its advanced "
+                "settings; tell the user what the worker needs",
+            )
+        )
     return await propose_for_caller(
         request,
         slot_key,
         sk,
-        kind=str(body.get("kind") or ""),
+        kind=kind,
         params=body.get("params"),
         reason=body.get("reason"),
+    )
+
+
+def _crewmate_drives_capabilities_off(request: web.Request, slot_key: str, sk: str) -> bool:
+    """A crewmate (its chat or its worker) asking for a capability card it may not raise.
+
+    While Dynamic capabilities is off under Crewmate 2.0
+    (``kiro_crew.crewmate_dynamic_capabilities``) the crewmate-driven capability
+    path is withheld, ``propose_change`` included. Any other caller -- the main
+    assistant asked to add a tool to a crewmate -- proposes the card as before.
+    """
+    from kiro_crew import crewmate_dynamic_capabilities, members
+    from kiro_crew.dashboard.mate_thread_wakes import is_crewmate_thread
+
+    if not crewmate_dynamic_capabilities.restricted():
+        return False
+    slot = request.app["state"].get_slot(slot_key)
+    return (
+        is_crewmate_thread(slot)
+        or members.is_crewmate_worker_session(slot_key)
+        or members.is_crewmate_worker_session(sk)
     )
 
 
@@ -1381,9 +1415,14 @@ async def _complete(request: web.Request, rec: dict[str, Any], *, partial: bool)
         undo_reason=reason,
         status=cards.STATUS_PARTIAL if partial else cards.STATUS_APPLIED,
     )
-    from kiro_crew import crewmate_v2
+    from kiro_crew import crewmate_dynamic_capabilities
 
-    if rec["kind"] == catalog.KIND_CREWMATE_CAPABILITIES and crewmate_v2.enabled():
+    # The nudge is the crewmate-driven capability path: Crewmate 2.0 AND Dynamic
+    # capabilities (``kiro_crew.crewmate_dynamic_capabilities``).
+    if (
+        rec["kind"] == catalog.KIND_CREWMATE_CAPABILITIES
+        and crewmate_dynamic_capabilities.enabled()
+    ):
         # A card press starts no turn: tell the crewmate, so the work that waited
         # on the capability moves to a worker that has it.
         from kiro_crew.dashboard import goal_setup

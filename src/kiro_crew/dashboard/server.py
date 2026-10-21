@@ -2412,6 +2412,10 @@ async def start_dashboard(
     from kiro_crew.mate_config_reversal import migrate_or_reverse
 
     crewmate_v2_on = crewmate_v2.latch()
+    # Dynamic capabilities, nested under it, is read once here too.
+    from kiro_crew import crewmate_dynamic_capabilities
+
+    crewmate_dynamic_capabilities.latch()
     try:
         await asyncio.to_thread(migrate_or_reverse, cfg, crewmate_v2_on, migrate_existing_crewmates)
     except Exception:

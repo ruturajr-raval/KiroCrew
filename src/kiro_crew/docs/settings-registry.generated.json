@@ -1024,7 +1024,7 @@
       "label": "Crewmate 2.0",
       "tab": "developer",
       "route": "/settings/developer?highlight=developer.crewmate-2-0",
-      "hint": "Each crewmate gets its own file, chats on its conductor and hands every task to its own worker. Turning it off moves every crewmate back to the template it had. Worker tools added on cards are kept but unused while off."
+      "hint": "Each crewmate gets its own file, chats on its conductor and hands every task to its own worker. On by default. Turning it off moves every crewmate back to the template it had; worker tools added to them are kept but unused while off."
     },
     {
       "id": "developer.crewmates",
@@ -1046,6 +1046,13 @@
       "tab": "developer",
       "route": "/settings/developer?highlight=developer.developer-mode",
       "hint": "Show Developer page in sidebar with Logs, System metrics, and Memory internals"
+    },
+    {
+      "id": "developer.dynamic-capabilities",
+      "label": "Dynamic capabilities",
+      "tab": "developer",
+      "route": "/settings/developer?highlight=developer.dynamic-capabilities",
+      "hint": "The crewmate can find and request new skills or tools for its worker on a card. Off: only you add them, in the crewmate's advanced settings."
     },
     {
       "id": "developer.earlier-conversation-one-decision-may-carry-in-characters",
