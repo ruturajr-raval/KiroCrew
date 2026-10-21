@@ -1195,6 +1195,9 @@ def _synthesis_words(body: str, resolve: "Callable[[str], str]", limit: int) -> 
         tokens = _self_command_tokens(masked)
         for word in _split_glued_operators(tokens):
             size = len(word) + sum(sizes.get(ref, 0) for ref in _VAR_REF_RE.findall(word))
+            # ``${!y}`` builds the variable ``y`` NAMES, which no length here records:
+            # each is sized as the largest tracked value, never under-counted.
+            size += len(_INDIRECT_VAR_USE_RE.findall(word)) * max(sizes.values(), default=0)
             total += size
             if total > limit:
                 return None

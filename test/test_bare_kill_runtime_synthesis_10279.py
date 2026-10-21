@@ -225,6 +225,32 @@ def test_references_that_add_up_past_the_cap_fail_closed_before_building_them(
     assert not calls
 
 
+def test_indirect_references_are_sized_before_building_them(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # ``${!y}`` expands to the value of the variable ``y`` NAMES, so a doubling
+    # chain reached through one indirect hop must be refused on lengths exactly
+    # like the direct references above, before the resolver builds it.
+    calls = _record_resolver_calls(monkeypatch)
+    chain = "; ".join(["x=$x$x"] * 10)
+    refs = " ".join(["${!y}"] * 3)
+    body = f"x=$(printf {'a' * 64}); {chain}; y=x; {_PG} -f {refs}"
+    assert _argv_floor._kill_body_synthesizes_self(body)
+    assert not calls
+
+
+@pytest.mark.parametrize(("operands", "refused"), [(1, False), (6, True)])
+def test_the_resolved_size_limit_counts_indirect_references(operands: int, refused: bool) -> None:
+    # The same totals as the direct-reference rows below, reached through ``y=x``.
+    from kiro_crew.security import shell_normalizer as sn
+
+    chain = "; ".join(["x=$x$x"] * 5)
+    refs = " ".join(["${!y}."] * operands)
+    body = f"x=$(printf {'a' * 64}); {chain}; y=x; {_PG} -f {refs}"
+    words = sn._synthesis_words(body, _argv_floor._static_substitution_output, 16_384)
+    assert (words is None) is refused
+
+
 @pytest.mark.parametrize(("operands", "refused"), [(1, False), (6, True)])
 def test_the_resolved_size_limit_is_on_the_total_of_the_words(operands: int, refused: bool) -> None:
     # A 64-character value doubled five times resolves to about 2,300 characters

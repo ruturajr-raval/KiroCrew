@@ -453,7 +453,7 @@ def _url_payload_command(n: int) -> str:
 #: behind a one-call wrapper in ``argv_floor_self``; the brace expander it is handed
 #: (with this change's cap and budget parameters) moves from ``argv_floor_ssh`` down to
 #: ``argv_floor_self``, so no owner imports one listed after it.
-_PACKAGE_LINE_BUDGET = 32_560
+_PACKAGE_LINE_BUDGET = 32_563
 
 #: Ceiling on any ONE file in the package. This is what the bound is really for --
 #: a package total says nothing about a single file growing back into a second
