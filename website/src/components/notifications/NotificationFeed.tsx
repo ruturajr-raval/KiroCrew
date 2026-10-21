@@ -1,6 +1,7 @@
 import { safeSetItem } from '../../utils/safeStorage'
 import { useState, useMemo, useCallback, useEffect, useRef, type ReactNode } from 'react'
-import { Bell, BellOff, Check, CheckCheck, Layers, Trash2, X } from 'lucide-react'
+import { Bell, BellOff, Check, CheckCheck, Layers, X } from 'lucide-react'
+import { motion, useReducedMotion } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
 import { useGuardedLeave } from '../NavigationLeaveGuard'
 import { useAppSelector, useAppDispatch } from '../../store'
@@ -9,6 +10,7 @@ import { api } from '../../api/client'
 import { EmptyState, SearchInput } from '../ui'
 import Clickable from '../Clickable'
 import Glass from '../Glass'
+import ErrorNotice from '../ErrorNotice'
 import MarkdownRenderer from '../MarkdownRenderer'
 import MessageErrorBoundary from '../MessageErrorBoundary'
 import { disintegrate } from '../../lib/disintegrate'
@@ -20,6 +22,8 @@ import {
 import NotificationPermissionHint from './NotificationPermissionHint'
 import NotificationCard, { CARD_RADIUS, type NotificationCardAction } from './NotificationCard'
 import { CrewmateNoteFace, CrewmateNoteName, CrewmateRosterError, noteMember } from './CrewmateNoteFace'
+import NotificationClearButton, { NOTIF_CONTROL_HEIGHT } from './NotificationClearButton'
+import { stackKeyOf, stackLabelOf } from './notificationStacks'
 
 import { i18nT } from '../../i18n/t'
 import { uiLocation } from '../../uiLocations/uiLocation'
@@ -59,6 +63,7 @@ export default function NotificationFeed({ selectedTs, onSelect, variant = 'pane
   revealTs?: string | null
 }) {
   const dispatch = useAppDispatch()
+  const reduceMotion = useReducedMotion()
   const items = useAppSelector(s => s.notifications.items)
   const [filter, setFilter] = useState('')
   // Silenced (muted-channel) rows are ghosts behind an explicit disclosure --
@@ -133,9 +138,10 @@ export default function NotificationFeed({ selectedTs, onSelect, variant = 'pane
   // whatever page the feed is floating over, and the ask belongs in front of the
   // handler rather than around its navigate call.
   const leave = useGuardedLeave()
-  // group_key stacking -- notes sharing a group_key within a date group
-  // collapse into one stack (newest is the visible head), macOS Notification
-  // Center style. Expansion is per stack key, session-local.
+  // Stacking -- notes sharing a stack key (`stackKeyOf`: the producer's
+  // group_key, else the sender) within a date group collapse into one stack
+  // (newest is the visible head), macOS Notification Center style. Expansion
+  // is per stack key, session-local.
   const [expandedStacks, setExpandedStacks] = useState<Set<string>>(new Set())
   const toggleStack = useCallback((key: string) => {
     setExpandedStacks(prev => {
@@ -145,34 +151,58 @@ export default function NotificationFeed({ selectedTs, onSelect, variant = 'pane
     })
   }, [])
 
-  type Row = { n: Notification; stackKey?: string; stackCount?: number; stackExpanded?: boolean; isStackChild?: boolean }
-  const stackedGroups = useMemo(() => {    const out = new Map<string, Row[]>()
+  // `stackTs` lists every note in the head's stack, so dismissing a collapsed
+  // deck clears the whole deck (what macOS does), not just its visible head.
+  type Row = { n: Notification; stackKey?: string; stackCount?: number; stackExpanded?: boolean; isStackChild?: boolean; stackTs?: string[] }
+  const stackedGroups = useMemo(() => {
+    const out = new Map<string, Row[]>()
     for (const [g, notes] of groups.entries()) {
       const rows: Row[] = []
       const stacks = new Map<string, Notification[]>()
       for (const n of notes) {
-        if (!n.group_key) continue
-        const arr = stacks.get(n.group_key)
-        if (arr) arr.push(n); else stacks.set(n.group_key, [n])
+        const key = stackKeyOf(n)
+        if (!key) continue
+        const arr = stacks.get(key)
+        if (arr) arr.push(n); else stacks.set(key, [n])
       }
       const seen = new Set<string>()
       for (const n of notes) {
-        if (!n.group_key || (stacks.get(n.group_key)?.length ?? 0) < 2) {
+        const key = stackKeyOf(n)
+        if (!key || (stacks.get(key)?.length ?? 0) < 2) {
           rows.push({ n })
           continue
         }
-        if (seen.has(n.group_key)) continue
-        seen.add(n.group_key)
-        const stack = stacks.get(n.group_key)!  // notes is newest-first, so [0] is the head
-        const stackKey = `${g}:${n.group_key}`
+        if (seen.has(key)) continue
+        seen.add(key)
+        const stack = stacks.get(key)!  // notes is newest-first, so [0] is the head
+        const stackKey = `${g}:${key}`
         const expanded = expandedStacks.has(stackKey)
-        rows.push({ n: stack[0], stackKey, stackCount: stack.length, stackExpanded: expanded })
+        rows.push({ n: stack[0], stackKey, stackCount: stack.length, stackExpanded: expanded, stackTs: stack.map(s => s.ts) })
         if (expanded) for (const child of stack.slice(1)) rows.push({ n: child, isStackChild: true })
       }
       out.set(g, rows)
     }
     return out
   }, [groups, expandedStacks])
+
+  const [clearFailed, setClearFailed] = useState(false)
+
+  // Wait for the whole group: one successful deletion must not hide a failure.
+  const clearNotes = useCallback(async (tsList: string[]) => {
+    const results = await Promise.allSettled(tsList.map(ts => dispatch(deleteNotification(ts)).unwrap()))
+    const failed = results.some(result => result.status === 'rejected')
+    setClearFailed(failed)
+    return !failed
+  }, [dispatch])
+
+  const clearAll = useCallback(async () => {
+    try {
+      await dispatch(clearNotifications()).unwrap()
+      setClearFailed(false)
+    } catch {
+      setClearFailed(true)
+    }
+  }, [dispatch])
 
   // Deep-link reveal. The feed owns this (rather than the host querying the
   // document) because only the feed knows about group_key stacking, and a
@@ -189,10 +219,11 @@ export default function NotificationFeed({ selectedTs, onSelect, variant = 'pane
     if (!revealTs || revealedRef.current === revealTs) return
     const target = items.find(n => n.ts === revealTs)
     if (!target) return
-    if (target.group_key) {
+    const targetStack = stackKeyOf(target)
+    if (targetStack) {
       const g = dateGroup(parseTs(target.ts))
-      const key = `${g}:${target.group_key}`
-      const stackSize = items.filter(n => n.group_key === target.group_key &&
+      const key = `${g}:${targetStack}`
+      const stackSize = items.filter(n => stackKeyOf(n) === targetStack &&
         dateGroup(parseTs(n.ts)) === g).length
       if (stackSize > 1 && !expandedStacks.has(key)) {
         setExpandedStacks(prev => new Set(prev).add(key))
@@ -272,7 +303,7 @@ export default function NotificationFeed({ selectedTs, onSelect, variant = 'pane
     <div className="flex gap-2 mb-2 items-center shrink-0">
       <div className="flex-1"><SearchInput className="[&>input]:!bg-bg-elevated/40 [&>input]:!border-border/60" placeholder={i18nT('components.notifications.notificationFeed.search')} value={filter} onChange={e => setFilter(e.target.value)} /></div>
       {!mac && unread > 0 && <button {...uiLocation('notifications.page-mark-all-read')} className="px-2 py-1 rounded-md border border-ok/40 bg-ok/10 text-ok-text text-[12px] font-semibold cursor-pointer hover:bg-ok/20 transition-all font-body whitespace-nowrap" onClick={() => dispatch(ackAllNotifications())}><Check className="lucide-inline" /> {i18nT('components.notifications.notificationFeed.all')}</button>}
-      {!mac && items.length > 0 && <button {...uiLocation('notifications.page-clear-all')} className="px-2 py-1 rounded-md border border-danger/40 bg-transparent text-danger hover:text-danger-text text-[12px] font-medium cursor-pointer hover:bg-danger/10 transition-all font-body whitespace-nowrap" onClick={() => { if (confirm(i18nT('components.notifications.notificationFeed.clear_all_notifications'))) dispatch(clearNotifications()) }}><X className="lucide-inline" /> {i18nT('components.notifications.notificationFeed.clear')}</button>}
+      {!mac && items.length > 0 && <NotificationClearButton {...uiLocation('notifications.page-clear-all')} confirmText={i18nT('components.notifications.notificationFeed.clear_all')} onClick={clearAll}>{i18nT('components.notifications.notificationFeed.clear')}</NotificationClearButton>}
     </div>
   )
 
@@ -315,13 +346,16 @@ export default function NotificationFeed({ selectedTs, onSelect, variant = 'pane
               ><CheckCheck className="lucide-inline" /></button>
             )}
             {items.length > 0 && (
-              <button
-                title={i18nT('components.notifications.notificationFeed.clear_all_notifications')}
+              <NotificationClearButton
                 aria-label={i18nT('components.notifications.notificationFeed.clear_all_notifications')}
                 {...uiLocation('notifications.clear-all')}
-                className="w-6 h-6 rounded-md flex items-center justify-center text-muted bg-transparent border-none cursor-pointer hover:bg-danger/10 hover:text-danger-text transition-colors shrink-0"
-                onClick={() => { if (confirm(i18nT('components.notifications.notificationFeed.clear_all_notifications'))) dispatch(clearNotifications()) }}
-              ><Trash2 className="lucide-inline" /></button>
+                // A trash can, not an ⓧ: an ⓧ in the sheet's top-right corner
+                // reads as "close the sheet".
+                icon="trash"
+                confirmText={i18nT('components.notifications.notificationFeed.clear_all')}
+                alwaysVisible
+                onClick={clearAll}
+              />
             )}
           </div>
           {searchRow}
@@ -340,6 +374,13 @@ export default function NotificationFeed({ selectedTs, onSelect, variant = 'pane
         </>
       )}
 
+      <ErrorNotice
+        message={clearFailed ? i18nT('components.notifications.notificationFeed.clear_failed') : null}
+        askAgent
+        actionPlacement="below"
+        className="mb-2 shrink-0"
+      />
+
       {/* List. In the mac variant this container is what a press below the
           last card lands on, which is why it carries a test id. Everything
           composed into the mac variant is material or background by decision
@@ -353,10 +394,19 @@ export default function NotificationFeed({ selectedTs, onSelect, variant = 'pane
         ) : (
           Array.from(stackedGroups.entries()).map(([group, rows]) => (
             <div key={group} className="mb-3">
-              <div className={mac
-                ? 'text-[11px] font-bold text-text-strong/80 uppercase tracking-[.06em] mb-1.5 px-1 drop-shadow-xs'
-                : 'text-[11px] font-semibold text-muted uppercase tracking-[.04em] mb-1.5 px-1'}>{group}</div>
-              {rows.map(({ n, stackKey, stackCount, stackExpanded, isStackChild }) => {
+              {/* The group's own clear sits on its header, so "clear" acts on
+                  the rows right under it rather than on a control far away. */}
+              <div className="group/clear flex items-center gap-1.5 mb-1.5 px-1 min-h-[20px]">
+                <div className={`flex-1 min-w-0 ${mac
+                  ? 'text-[11px] font-bold text-text-strong/80 uppercase tracking-[.06em] drop-shadow-xs'
+                  : 'text-[11px] font-semibold text-muted uppercase tracking-[.04em]'}`}>{group}</div>
+                <NotificationClearButton
+                  aria-label={i18nT('components.notifications.notificationFeed.clear_group', { group })}
+                  confirmText={i18nT('components.notifications.notificationFeed.clear')}
+                  onClick={() => clearNotes((groups.get(group) ?? []).map(g => g.ts))}
+                />
+              </div>
+              {rows.map(({ n, stackKey, stackCount, stackExpanded, isStackChild, stackTs }) => {
                 const km = KIND_META[n.kind] || DEFAULT_META
                 const member = noteMember(n)
                 const kindIcon = <span className="text-[13px] shrink-0">{km.icon}</span>
@@ -419,19 +469,57 @@ export default function NotificationFeed({ selectedTs, onSelect, variant = 'pane
                     { id: 'reject', label: i18nT('components.notifications.notificationFeed.reject'), tone: 'danger' as const, onClick: () => resolveApprovalNote(n, 'reject') },
                   ] : []),
                   ...urlActions.map(a => ({ id: a.id, label: a.label, tone: 'text' as const, onClick: () => leave(() => navigate(a.safeUrl!), a.safeUrl!) })),
-                  // Only the quiet "Show less" when expanded; collapse-by-click
-                  // lives on the deck.
-                  ...(stackKey && stackCount && stackCount > 1 && stackExpanded ? [
-                    { id: 'stack', label: i18nT('components.notifications.notificationFeed.show_less'), tone: 'muted' as const, trailing: true, 'aria-expanded': true, onClick: () => toggleStack(stackKey) },
-                  ] : []),
                 ]
+                // An expanded stack gets a header row above its newest note,
+                // as macOS Notification Center does: who sent it on the left,
+                // Show less and the stack's clear on the right. The head card
+                // stays the same element, so expanding never swaps it out.
+                const expandedHead = !!(stackKey && stackCount && stackCount > 1 && stackExpanded)
+                const stackLabel = expandedHead ? stackLabelOf(n) : ''
+                const stackHeader = expandedHead && stackKey ? (
+                  <motion.div
+                    initial={reduceMotion ? false : { opacity: 0, y: -4 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.18 }}
+                    className={`flex items-center gap-1.5 px-1.5 ${mac ? 'mb-2 mt-0.5' : 'mb-1.5'}`}
+                  >
+                    <div className={`flex-1 min-w-0 truncate font-semibold text-text-strong ${mac ? 'text-[13px] drop-shadow-xs' : 'text-[12px]'}`}>{stackLabel}</div>
+                    <button
+                      type="button"
+                      aria-expanded
+                      className={`${MAC_ACTION_BTN_CLASS} text-muted ${NOTIF_CONTROL_HEIGHT} !py-0 inline-flex items-center leading-none`}
+                      onClick={() => toggleStack(stackKey)}
+                    >{i18nT('components.notifications.notificationFeed.show_less')}</button>
+                    {/* Visible "Clear" text, not an ⓧ: beside Show less a bare
+                        ⓧ cannot say whether it hides the stack or deletes it.
+                        Armed, it names its scope so it never reads as the
+                        inbox-wide "Clear all". */}
+                    <NotificationClearButton
+                      aria-label={i18nT('components.notifications.notificationFeed.clear_group', { group: stackLabel })}
+                      icon="none"
+                      confirmText={i18nT('components.notifications.notificationFeed.clear_this_group')}
+                      alwaysVisible
+                      onClick={() => clearNotes(stackTs ?? [n.ts])}
+                    >{i18nT('components.notifications.notificationFeed.clear')}</NotificationClearButton>
+                  </motion.div>
+                ) : null
+                // A collapsed deck reads as one item, so its close clears the
+                // whole deck; an expanded stack's rows each close themselves.
+                const dismissTs = collapsedStack && stackTs ? stackTs : [n.ts]
+                const dismissLabel = collapsedStack
+                  ? i18nT('components.notifications.notificationFeed.clear_this_group')
+                  : i18nT('components.notifications.notificationFeed.dismiss_notification')
                 const dismissRow = async (e?: React.MouseEvent | React.KeyboardEvent) => {
                   const row = (e?.currentTarget as HTMLElement | undefined)?.closest('[data-notif-row]') as HTMLElement | null
+                  const previousStyle = row?.style.cssText ?? ''
                   await disintegrate(row)
-                  dispatch(deleteNotification(n.ts))
+                  const cleared = await clearNotes(dismissTs)
+                  // A rejected delete keeps its row; undo the dust animation.
+                  if (!cleared && row) row.style.cssText = previousStyle
                 }
                 return (
                   <div key={n.ts} className={isStackChild && !mac ? 'ml-4' : ''}>
+                    {stackHeader}
                     {/* data-ts is the reveal effect's DOM anchor for
                         scroll-into-view, scoped under listRef. */}
                     {mac ? (
@@ -446,7 +534,7 @@ export default function NotificationFeed({ selectedTs, onSelect, variant = 'pane
                           ? i18nT('components.notifications.notificationFeed.expand_grouped_notifications', { count: stackCount, title: n.title })
                           : i18nT('components.notifications.notificationFeed.open_notification', { title: n.title })}
                         onDismiss={dismissRow}
-                        dismissLabel={i18nT('components.notifications.notificationFeed.dismiss_notification')}
+                        dismissLabel={dismissLabel}
                         actions={macActions}
                         body={approvalBody}
                         trailing={silenced ? (
@@ -483,12 +571,12 @@ export default function NotificationFeed({ selectedTs, onSelect, variant = 'pane
                         </div>
                       </Clickable>
                       <Clickable
-                        aria-label={i18nT('components.notifications.notificationFeed.dismiss_notification')}
+                        aria-label={dismissLabel}
                         className="opacity-0 group-hover:opacity-40 [@media(hover:none)]:opacity-60 text-[11px] cursor-pointer hover:!opacity-100 hover:text-danger transition-opacity shrink-0"
                         onClick={dismissRow}
                       ><X className="lucide-inline" /></Clickable>
                       </div>
-                      {(hasActions || (stackCount && stackCount > 1)) && (
+                      {(hasActions || collapsedStack) && (
                         <div className="flex items-center gap-1.5 mt-1.5 flex-wrap pl-6">
                           {isApproval && (
                             <>
@@ -513,8 +601,9 @@ export default function NotificationFeed({ selectedTs, onSelect, variant = 'pane
                             >{a.label}</button>
                           ))}
                           <span className="flex-1" />
-                          {/* Panel keeps an explicit stack pill both ways. */}
-                          {stackKey && stackCount && stackCount > 1 && (
+                          {/* Panel shows an explicit pill to expand; an
+                              expanded stack folds from its header row. */}
+                          {collapsedStack && stackKey && stackCount && (
                             <button
                               type="button"
                               aria-expanded={!!stackExpanded}
