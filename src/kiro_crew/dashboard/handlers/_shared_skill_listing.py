@@ -144,7 +144,6 @@ def _agent_loads_skill(agent_json: dict[str, Any], agent_path: Path, skill_md: P
     resources = agent_json.get("resources") or []
     if not isinstance(resources, list):
         return False
-    target = str(skill_md)
     globs = [
         g
         for res in resources
@@ -152,7 +151,8 @@ def _agent_loads_skill(agent_json: dict[str, Any], agent_path: Path, skill_md: P
         for g in (_expand_resource_uri(res, agent_path),)
         if g
     ]
-    return any(fnmatch.fnmatch(target, g) for g in _with_canonical_globs(globs))
+    canonical = _with_canonical_globs(globs)
+    return any(fnmatch.fnmatch(target, g) for target in _row_spellings(skill_md) for g in canonical)
 
 
 def _expand_agent_globs(
@@ -191,10 +191,29 @@ def _agents_loading_skill(
     skill_md: Path, expanded_agents: list[tuple[str, list[str]]]
 ) -> list[str]:
     """Return names of agents whose pre-expanded globs match *skill_md*."""
-    target = str(skill_md)
+    targets = _row_spellings(skill_md)
     return [
-        name for name, globs in expanded_agents if any(fnmatch.fnmatch(target, g) for g in globs)
+        name
+        for name, globs in expanded_agents
+        if any(fnmatch.fnmatch(target, g) for target in targets for g in globs)
     ]
+
+
+def _row_spellings(skill_md: Path) -> list[str]:
+    """Return *skill_md* as spelled, plus its symlink-resolved form when different.
+
+    Mirrors the runtime scope match (``skill_runtime.catalog._matches_any``),
+    which also tries the row path resolved through symlinks. Without it a
+    glob written against the resolved ``$HOME`` selects the skill at runtime
+    but never matches the row listed under the ``$HOME`` spelling (#21949).
+    Resolved once per skill, not once per agent.
+    """
+    target = str(skill_md)
+    try:
+        real = str(Path(target).resolve(strict=True))
+    except (OSError, RuntimeError):
+        return [target]
+    return [target] if real == target else [target, real]
 
 
 # The parsed-agents snapshot lives in ``agent_discovery.parsed_agent_specs``
