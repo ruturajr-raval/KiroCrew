@@ -598,6 +598,10 @@ class AutoNudgeService:
         # so any sign of life restarts the two-pass clock. Not persisted --
         # after a restart, start() re-arms every active loop anyway.
         self._reconcile_candidates: set[str] = set()
+        # Loop ids the overdue backstop has already warned about in their current
+        # overdue episode (see ``_overdue_branch``), so each episode logs once.
+        # Dropped by the first pass that finds the loop on schedule again.
+        self._overdue_warned: set[str] = set()
         self._observers: list[Callable[[str, NudgeLoop | None], None]] = []
         self._lock = asyncio.Lock()
 
@@ -795,6 +799,7 @@ class AutoNudgeService:
             self._cancel_timer(loop_id)
         self._timers.clear()
         self._reconcile_candidates.clear()
+        self._overdue_warned.clear()
         self._accepted_monitor_turns.clear()
         self._maintenance_quiescing.clear()
         self._maintenance_quiesce_events.clear()
