@@ -430,7 +430,11 @@ def _url_payload_command(n: int) -> str:
 #: credential and outbound-URL spans on the same text and rewrites it once. It is new
 #: behaviour, not moved code, so no other file shrinks to pay for it, and it belongs in
 #: this package because egress code must reach the raw passes only through it.
-_PACKAGE_LINE_BUDGET = 32_056
+#:
+#: Raised again, from 32,056, for the ``-c`` operand that skips a redirect word, and the
+#: rm floor reading each nested-shell payload through the shared extractor and the
+#: shared data-consumer exemption. No pattern moved.
+_PACKAGE_LINE_BUDGET = 32_177
 
 #: Ceiling on any ONE file in the package. This is what the bound is really for --
 #: a package total says nothing about a single file growing back into a second
