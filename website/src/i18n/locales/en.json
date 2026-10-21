@@ -2067,7 +2067,8 @@
         "minutesRevertFailed": "Could not discard your edits.",
         "anotherMeetingActiveNamed": "\"{{title}}\" is already running. End it first.",
         "anotherMeetingReviewing": "Close the “{{title}}” review to start another meeting.",
-        "sttStreamingDisabled": "Enable streaming in Voice settings for live transcription."
+        "sttStreamingDisabled": "Live transcription is off. In Settings → Voice, check that speech input is enabled, the provider can stream, and Streaming is on.",
+        "openVoiceSettings": "Open Voice settings"
       },
       "settings": {
         "addTerm": "Add",

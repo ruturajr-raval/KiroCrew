@@ -3387,7 +3387,8 @@
         "minutesRevertFailed": "Non è stato possibile scartare le tue modifiche.",
         "anotherMeetingActiveNamed": "\"{{title}}\" è già in corso. Terminala prima.",
         "anotherMeetingReviewing": "Chiudi la revisione di “{{title}}” per avviare un’altra riunione.",
-        "sttStreamingDisabled": "Attiva lo streaming nelle impostazioni Voce per la trascrizione dal vivo."
+        "sttStreamingDisabled": "La trascrizione dal vivo è disattivata. In Impostazioni → Voce, verifica che l'input vocale sia attivo, che il provider supporti lo streaming e che Streaming sia attivo.",
+        "openVoiceSettings": "Apri impostazioni voce"
       },
       "settings": {
         "addTerm": "Aggiungi",

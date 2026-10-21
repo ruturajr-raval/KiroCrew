@@ -3477,7 +3477,8 @@
         "minutesRevertFailed": "Impossible d'abandonner tes modifications.",
         "anotherMeetingActiveNamed": "“{{title}}” est déjà en cours. Termine-la d’abord.",
         "anotherMeetingReviewing": "Ferme la révision de « {{title}} » pour démarrer une autre réunion.",
-        "sttStreamingDisabled": "Active le streaming dans les paramètres Voix pour la transcription en direct."
+        "sttStreamingDisabled": "La transcription en direct est désactivée. Dans Paramètres → Voix, vérifie que la saisie vocale est activée, que le fournisseur gère le streaming et que Streaming est activé.",
+        "openVoiceSettings": "Ouvrir les paramètres vocaux"
       },
       "settings": {
         "addTerm": "Ajouter",
