@@ -1446,6 +1446,251 @@ _IMDS_IP = "169.254.169.254"
 # SSRF gate which also blocks it (CWE-918 dual-stack parity).
 _IMDS_IPV6 = "fd00:ec2::254"
 
+# ── IMDS via shell EXPANSION (CWE-185 / CWE-693) ──
+# The deny view deliberately stops BEFORE shell expansion (parameter ``${X}``,
+# arithmetic ``$((..))``, command ``$(..)``), so a dotted token that splices an
+# expansion into an octet -- ``169.254.169.25$((2+2))``, ``169.254.169.2${X}54``,
+# ``169.254.169.25$(printf 4)`` -- reaches this gate with that octet UNEXPANDED,
+# and the literal ``169.254.169.254`` the canonicalizer looks for never appears.
+# while bash still produces the real bytes at run time. Treat an expansion in an
+# octet slot as a WILDCARD: when every LITERAL octet equals IMDS in its position
+# (and at least one octet is literal), the token can expand to ``169.254.169.254``,
+# so refuse it. The denial reason is a FIXED string -- no command token and no
+# expanded byte is written to the audit trail.
+#
+# Each command CONTEXT -- the command and every ACTIVE command-substitution body
+# the shell would run -- is resolved in ONE linear pass (``_context_streams``)
+# into a per-context stream: quote DELIMITERS are dropped and their content kept
+# literal, a SINGLE-quoted expansion is inert literal text, and an ACTIVE expansion
+# (unquoted or inside double quotes, where the shell DOES expand) is one wildcard
+# that also opens a child context. So a dotted token can split across adjacent
+# quoted fragments (``169.254.169.25"$((2+2))"``) because the delimiters are
+# transparent; an IMDS request wrapped in an outer ``$(...)`` is caught in its
+# child context; a single-quoted ``$((..))`` is not read as a live octet; and a
+# shell ``-c`` argument, a command the shell runs, is scanned as its own context.
+# One pass handles arbitrary nesting -- no backtracking, no ReDoS, no quadratic
+# re-scan -- and a command with no ``$(`` / ``${`` / backtick marker short-circuits
+# before the scan runs at all.
+#
+# Literal octets are read in the OS resolver's bases (``_octet_literal_value``):
+# a leading-zero octet is OCTAL (``0251`` is 169, not 251) and ``0x`` is hex, the
+# same forms ``canonicalize_ip`` and ``curl`` accept, so an octal/hex spelling of
+# the fixed octets cannot walk the token past this gate.
+# The dotted-quad octets of _IMDS_IP, as ints, for positional comparison.
+_IMDS_OCTETS = tuple(int(o) for o in _IMDS_IP.split("."))
+#: Collapsed-expansion sentinel: a NUL never appears in a real shell command.
+_EXPANSION_SENTINEL = "\x00"
+#: Characters of a dotted IP token (decimal, hex digits, ``x``, the dot); never ``$``.
+_IP_TOKEN_CHARS = frozenset("0123456789abcdefABCDEFxX.")
+
+
+def _match_closers(command: str) -> "dict[int, int]":
+    """Map each structural ``(``/``{`` index to its matching ``)``/``}`` index.
+
+    One linear pass with a stack per delimiter; an opener that never closes is
+    absent from the map. Precomputing this once keeps the token scan linear: an
+    unterminated ``$(`` is a lookup miss, not a re-scan to the end of the string,
+    so a command of many unclosed ``$(`` cannot drive the gate quadratic.
+
+    QUOTE-AWARE through the one shell quote/escape state machine
+    (:func:`_iter_shell_chars`): a bracket counts only where the shell treats it
+    as STRUCTURE -- unquoted (state 0) or double-quoted (state 2, where
+    ``$(...)`` still expands) and not a backslash-escape pair. A single-quoted or
+    escaped bracket is literal, so a quoted ``'('`` inside ``$(printf '(' ; printf
+    254)`` cannot inflate the count and leave the real ``$(`` unmatched -- the
+    exact defect a quote-unaware paren count has.
+    """
+    from .shell_normalizer_walk import _iter_shell_chars
+
+    closers: dict[int, int] = {}
+    parens: list[int] = []
+    braces: list[int] = []
+    for sc in _iter_shell_chars(command):
+        if sc.state not in (0, 2) or len(sc.text) != 1:
+            continue  # single-quoted (state 1) or escaped: a literal, not structure
+        ch, idx = sc.char, sc.offset
+        if ch == "(":
+            parens.append(idx)
+        elif ch == ")":
+            if parens:
+                closers[parens.pop()] = idx
+        elif ch == "{":
+            braces.append(idx)
+        elif ch == "}":
+            if braces:
+                closers[braces.pop()] = idx
+    return closers
+
+
+def _context_streams(command: str) -> "list[str]":
+    """Resolved character streams for the command and every ACTIVE expansion body.
+
+    ONE linear pass through the shell quote/escape state machine, so arbitrary
+    nesting is free -- each character is handled once, no re-scan, no ReDoS. In a
+    stream: quote DELIMITERS are dropped and their content kept as literal text; a
+    character inside a SINGLE quote is literal (an inert ``$((..))`` there is just
+    text); an ACTIVE expansion -- ``$(`` / ``${`` / ``$((`` opened unquoted or
+    inside double quotes, where the shell DOES expand -- becomes one
+    ``_EXPANSION_SENTINEL`` in the enclosing stream AND opens a child stream for
+    its body, so an IMDS request the shell would run inside it is scanned on its
+    own. The enclosing-stream sentinel is what makes a spliced octet
+    (``169.254.169.25$((2+2))``) read as a wildcard octet, and keeping quote
+    delimiters transparent is what keeps a token split across adjacent quoted
+    fragments (``169.254.169.25"$((2+2))"``) whole.
+    """
+    from .shell_normalizer_walk import _iter_shell_chars
+
+    closers = _match_closers(command)
+    n = len(command)
+    streams: list[str] = []
+    stack: list[list[str]] = [[]]  # open contexts, innermost last
+    close_at: list[int] = []  # matching-close offset of each open child context
+    prev_state = 0
+    for sc in _iter_shell_chars(command):
+        off, ch, state, text = sc.offset, sc.char, sc.state, sc.text
+        while close_at and off >= close_at[-1]:
+            streams.append("".join(stack.pop()))
+            close_at.pop()
+        one = len(text) == 1
+        if (
+            one
+            and state in (0, 2)
+            and ch == "$"
+            and off + 1 < n
+            and command[off + 1] in "({"
+            and (off + 1) in closers
+        ):
+            stack[-1].append(_EXPANSION_SENTINEL)  # the expansion's value, enclosing word
+            stack.append([])  # a child context for its body
+            close_at.append(closers[off + 1])
+            prev_state = state
+            continue
+        if one and ch in ("'", '"') and state != prev_state:
+            prev_state = state
+            continue  # a quote delimiter: drop it, keep its content
+        prev_state = state
+        if ch in (")", "}"):
+            continue  # a structural close bracket is part of no token
+        stack[-1].append(ch)
+    while stack:
+        streams.append("".join(stack.pop()))
+    return streams
+
+
+def _octet_literal_value(part: str) -> int:
+    """Value of a LITERAL dotted octet in the OS resolver's bases.
+
+    ``inet_aton`` and ``curl`` read a leading-zero octet as OCTAL (``0251`` is
+    169, not 251) and ``0x`` as hex, so compare in those bases -- mirrors the
+    octet parsing in ``canonicalize_ip``. Raises ValueError for an empty or
+    non-numeric octet.
+    """
+    low = part.lower()
+    if len(low) > 1 and low[0] == "0" and low[1:].isdigit():
+        # Octal only when every trailing digit is octal; a stray 8/9 is decimal,
+        # exactly as canonicalize_ip / inet_aton read it.
+        if all(c in "01234567" for c in low[1:]):
+            return int(low, 8)
+        return int(low)
+    return int(low, 0)  # decimal, or 0x-prefixed hex
+
+
+def _imds_in_stream(stream: str) -> bool:
+    """True if a resolved stream holds a 4-octet token that can expand to IMDS.
+
+    A candidate token is a maximal run of IP characters and expansion sentinels.
+    It matches only when it carries at least one SENTINEL octet (a runtime value)
+    AND at least one LITERAL octet, and every literal octet equals IMDS at its
+    position, read in the resolver's bases. An all-literal token is the
+    canonicalizer's job; an all-sentinel token (a version string) has nothing
+    pinning it to IMDS and is left alone.
+    """
+    token: list[str] = []
+    for ch in stream + " ":  # the trailing separator flushes the final token
+        if ch in _IP_TOKEN_CHARS or ch == _EXPANSION_SENTINEL:
+            token.append(ch)
+            continue
+        if not token:
+            continue
+        octets = "".join(token).split(".")
+        token = []
+        if len(octets) != 4:
+            continue
+        wildcard = has_literal = False
+        ok = True
+        for part, want in zip(octets, _IMDS_OCTETS):
+            if _EXPANSION_SENTINEL in part:
+                wildcard = True  # a runtime-controlled octet -> matches any value
+                continue
+            has_literal = True
+            try:
+                if _octet_literal_value(part) != want:
+                    ok = False
+                    break
+            except ValueError:
+                ok = False  # empty or unparseable octet: not a per-octet IMDS spelling
+                break
+        if ok and wildcard and has_literal:
+            return True
+    return False
+
+
+#: Shell programs whose ``-c`` argument is itself an executed command.
+_SHELL_C_PROGRAMS = frozenset({"bash", "sh", "dash", "zsh", "ksh", "ash"})
+#: Bound on recursion into ``-c`` command strings (nested ``bash -c`` is shallow).
+_MAX_SHELL_C_DEPTH = 12
+
+
+def _shell_c_arguments(command: str) -> "list[str]":
+    """Dequoted ``-c`` arguments of a shell program (``bash -c '...'``).
+
+    Each is a command string the shell EXECUTES, so a SINGLE-quoted expansion in
+    it is live there and must be scanned as its own command (``_context_streams``
+    on the raw text keeps it literal). Tokenised with ``shlex`` (POSIX), which
+    keeps a quoted ``-c`` argument whole; a tokenise failure yields nothing (the
+    stream scan already read the raw text).
+    """
+    import shlex
+
+    try:
+        argv = shlex.split(command, posix=True)
+    except ValueError:
+        return []
+    args: list[str] = []
+    for i in range(len(argv) - 2):
+        program = argv[i].rsplit("/", 1)[-1]
+        if program in _SHELL_C_PROGRAMS and argv[i + 1] == "-c":
+            args.append(argv[i + 2])
+    return args
+
+
+def _imds_access_via_expansion(command: str, _depth: int = 0) -> str | None:
+    """Refuse an IMDS access a shell expansion hides -- spliced, quoted or nested.
+
+    See the module note above. Each command CONTEXT (the command and every ACTIVE
+    command-substitution body, produced by :func:`_context_streams` in one linear
+    pass) is scanned for a dotted token that can expand to ``169.254.169.254``
+    with a runtime-valued octet. Quote delimiters are transparent, so a token
+    split across adjacent quoted fragments reads as one; a SINGLE-quoted
+    expansion is inert and kept literal. A shell ``-c`` argument is a command the
+    shell runs, so it is scanned as its own command too, bounded in depth.
+
+    Returns the denial reason, which names no expanded bytes, or None.
+    """
+    if "$(" not in command and "${" not in command and "`" not in command:
+        return None
+    for stream in _context_streams(command):
+        if _imds_in_stream(stream):
+            return (
+                "Blocked: command accesses IMDS endpoint " "(169.254.169.254 via shell expansion)"
+            )
+    if _depth < _MAX_SHELL_C_DEPTH:
+        for arg in _shell_c_arguments(command):
+            reason = _imds_access_via_expansion(arg, _depth + 1)
+            if reason:
+                return reason
+    return None
+
 
 def _check_imds_access(command: str, *, enabled_ids: "frozenset[str] | None" = None) -> str | None:
     """Detect attempts to access the IMDS endpoint via any encoding.
@@ -1460,10 +1705,12 @@ def _check_imds_access(command: str, *, enabled_ids: "frozenset[str] | None" = N
     """
     if enabled_ids is not None and "credential-exfil-imds-any" not in enabled_ids:
         return None
-    # Quick reject: no IP-like candidate in command
+    # Quick reject: no literal IP candidate. A token whose octets are ALL shell
+    # expansions (``$A.$B.$C.254``) still has no literal candidate, so the
+    # expansion check runs even on this path rather than short-circuiting None.
     candidates = _IP_CANDIDATE_RE.findall(command)
     if not candidates:
-        return None
+        return _imds_access_via_expansion(command)
 
     try:
         imds_v6: ipaddress.IPv6Address | None = ipaddress.ip_address(_IMDS_IPV6)  # type: ignore[assignment]
@@ -1490,7 +1737,8 @@ def _check_imds_access(command: str, *, enabled_ids: "frozenset[str] | None" = N
                     )
             except ValueError:
                 pass
-    return None
+    # No literal encoding matched; a per-octet shell-expansion spelling still can.
+    return _imds_access_via_expansion(command)
 
 
 # This module is the import path of every name the egress layer offers. The URL classifier,

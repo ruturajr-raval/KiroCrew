@@ -77,6 +77,11 @@ _BASH_EXFIL_RES: list[tuple[re.Pattern[str], str]] = [
     # `-T`: curl's upload flag is uppercase, so this does NOT match lowercase long
     # options such as `--trace-time`. `-T` must begin at a word boundary.
     (re.compile(r"\bcurl\b.*(?:^|\s)-T\s*\S"), "curl -T upload"),
+    # The /dev/tcp//dev/udp reverse shell spliced with a shell expansion
+    # (`/dev/tc$(printf p)/host`, `/dev/t$(printf c)p/…`, a quoted redirect target)
+    # is NOT a regex row: the shell forms the device only after expansion, so it
+    # is detected on the quote/substitution-resolved view by
+    # `_devtcp_via_expansion` below, called from `audit_bash_exfiltration`.
 ]
 
 
@@ -163,6 +168,74 @@ def _data_at_carveout_allows(command: str) -> bool:
     return words[0] in _CARVEOUT_VERBS
 
 
+#: Characters that open a shell word, so an absolute ``/dev/`` may begin after one.
+_DEV_WORD_SEPARATORS = frozenset(" \t\n>&<|;(")
+
+
+def _dev_region_forms_socket(region: str) -> bool:
+    """True if a resolved post-``/dev/`` region can expand to the tcp/udp socket.
+
+    *region* is the text right after an absolute ``/dev/``, up to the next literal
+    ``/`` or whitespace, with each ACTIVE expansion collapsed to a sentinel. Walk
+    it against each device name: a literal must match the next device character
+    (advancing); a sentinel can supply the rest of the device name and its
+    separator, so reaching one while still a valid prefix means the device can
+    form at run time -- ``tc`` + sentinel, ``t`` + sentinel + ``p``, ``tcp`` +
+    sentinel (the slash). A literal that diverges (``tcl``, ``tcpdump``,
+    ``udmabuf``) rules that device out. A purely literal ``tcp``/``udp`` carries
+    no sentinel and is the deny tier's job.
+    """
+    from .exfil import _EXPANSION_SENTINEL
+
+    for target in ("tcp", "udp"):
+        ti = 0
+        for ch in region:
+            if ch == _EXPANSION_SENTINEL:
+                return True  # the expansion completes the device name + separator
+            if ti < len(target) and ch == target[ti]:
+                ti += 1
+            else:
+                break  # diverged from this device name
+    return False
+
+
+def _devtcp_via_expansion(command: str, _depth: int = 0) -> bool:
+    """True if *command* opens an absolute ``/dev/tcp`` / ``/dev/udp`` reverse-shell
+    device whose name is formed (partly) by a shell expansion.
+
+    Read on the same quote/substitution-aware streams the IMDS gate uses
+    (``exfil._context_streams``): quote delimiters are transparent, a single-quoted
+    ``/dev/tc$(`` is inert literal text (so ``grep -F '/dev/tc$('`` is not a
+    device), and an active expansion is a sentinel that can form the device. A
+    ``/dev/`` counts only when it BEGINS a shell word (start, whitespace, or a
+    ``> < & | ; (`` operator), so a home/relative/drive-rooted ``/dev/tc`` path is
+    left alone. A shell ``-c`` argument is scanned as its own command too.
+    """
+    from .exfil import _MAX_SHELL_C_DEPTH, _context_streams, _shell_c_arguments
+
+    for stream in _context_streams(command):
+        start = 0
+        while True:
+            j = stream.find("/dev/", start)
+            if j < 0:
+                break
+            start = j + 1
+            if j != 0 and stream[j - 1] not in _DEV_WORD_SEPARATORS:
+                continue  # not an absolute word start
+            k = j + 5
+            region: list[str] = []
+            while k < len(stream) and stream[k] not in "/ \t\n":
+                region.append(stream[k])
+                k += 1
+            if _dev_region_forms_socket("".join(region)):
+                return True
+    if _depth < _MAX_SHELL_C_DEPTH:
+        for arg in _shell_c_arguments(command):
+            if _devtcp_via_expansion(arg, _depth + 1):
+                return True
+    return False
+
+
 def audit_bash_exfiltration(
     command: str, *, enabled_ids: "frozenset[str] | None" = None
 ) -> str | None:
@@ -220,4 +293,9 @@ def audit_bash_exfiltration(
             if _on(matched_id):
                 return f"Blocked: command matches data-exfiltration pattern ({label})"
         continue
+    # /dev/tcp//dev/udp reverse shell whose device name is formed by a shell
+    # expansion -- resolved on the quote/substitution-aware view, honouring the
+    # same reverse-shell-devtcp toggle as the literal /dev/tcp/ rows above.
+    if _on("reverse-shell-devtcp") and _devtcp_via_expansion(command):
+        return "Blocked: command matches data-exfiltration pattern (/dev/tcp via shell expansion)"
     return None

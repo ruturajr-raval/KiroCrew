@@ -430,7 +430,37 @@ def _url_payload_command(n: int) -> str:
 #: credential and outbound-URL spans on the same text and rewrites it once. It is new
 #: behaviour, not moved code, so no other file shrinks to pay for it, and it belongs in
 #: this package because egress code must reach the raw passes only through it.
-_PACKAGE_LINE_BUDGET = 32_056
+#:
+#: Raised again, from 32,056, for the shell-expansion bypass gate (GHSA-x2m8-5ff9-f479):
+#: ``_imds_access_via_expansion`` in ``exfil.py`` with its module note refuses a dotted
+#: IMDS token one of whose octets splices a ``$(``/``${`` expansion, and the
+#: ``/dev/tcp via shell expansion`` row in ``exfil_bash.py`` refuses a ``/dev/tc``/``/dev/ud``
+#: device name carrying one. The ``/dev/`` path is anchored as ABSOLUTE and at least one
+#: literal IMDS octet is required, so all-expansion version strings and ``~/dev/tcl`` home
+#: paths are not over-blocked. No existing pattern, threshold or pass moved.
+#:
+#: Raised again, from 32,167, hardening that same gate against three review findings
+#: (GHSA-x2m8-5ff9-f479): literal octets are now read in the resolver's bases so an OCTAL
+#: (``0251``→169) or hex spelling of the fixed octets cannot walk the token past the gate;
+#: matched brackets (``_match_closers`` feeding ``_context_streams``, precomputed in
+#: one linear pass) span a nested ``$((100+(154)))`` whole without a quadratic re-scan; and the
+#: ``/dev/`` rule now anchors to an absolute shell word AND a ``tcp``/``udp`` device
+#: segment, so a path rooted at ``}``/``)``/``"``/``:`` or a doubled slash is not
+#: over-blocked. The token scanner also advances past an UNTERMINATED ``$(`` so it
+#: cannot hang the event loop. No existing pattern, threshold or pass moved.
+#:
+#: Raised again, from 32,261, for the quote/substitution-aware rework of the same
+#: gate (GHSA-x2m8-5ff9-f479): a single linear pass (``_context_streams``) resolves
+#: the command and every ACTIVE command-substitution body into per-context streams
+#: where quote delimiters are transparent, a single-quoted expansion is inert
+#: literal text, and an active expansion is a wildcard. ``_imds_access_via_expansion``
+#: checks each stream for a dotted token that can expand to IMDS, and
+#: ``_devtcp_via_expansion`` checks each for an absolute ``/dev/tcp``/``/dev/udp``
+#: device the expansion forms; a shell ``-c`` argument is scanned as its own
+#: command. This closes the quoted word-split, outer-``$()``-wrap, deep-nest,
+#: ``bash -c`` and mid-name device evasions without over-blocking single-quoted or
+#: home/relative paths, in one O(n) pass. No existing pattern, threshold or pass moved.
+_PACKAGE_LINE_BUDGET = 32_382
 
 #: Ceiling on any ONE file in the package. This is what the bound is really for --
 #: a package total says nothing about a single file growing back into a second
